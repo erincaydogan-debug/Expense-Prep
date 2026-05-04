@@ -456,6 +456,20 @@ function buildPages() {
   return pages;
 }
 
+// Compute the effective max aspect ratio for a set of cells (used by smart layout)
+function maxAspectRatio(cells) {
+  let max = 0;
+  for (const { all } of cells) {
+    let ar = 0;
+    for (const it of all) {
+      const img = imgCache[it.dataUrl];
+      if (img && img.naturalWidth) ar += img.naturalHeight / img.naturalWidth;
+    }
+    if (ar > max) max = ar;
+  }
+  return max;
+}
+
 // CANVAS RENDER
 function renderPreview() {
   const area = document.getElementById('preview');
@@ -513,10 +527,49 @@ function drawPage(cv, pg, pNum, pTotal, startNum) {
     drawImgs(ctx, all, M+2, ct+LH+3, W-M*2-4, H-ct-LH-M-5);
   } else {
     const cells = pg.cells;
-    const cols = cells.length <= 2 ? cells.length : cells.length <= 4 ? 2 : 3;
+    const avW = W - M*2;
+    const avH = H - ct - M;
+
+    // For each candidate cols (3→2→1), simulate the worst-case rendered image width.
+    // Pick the largest cols where every receipt renders at least 30% of cell width.
+    function simMinImgW(tryCols) {
+      const tryRows = Math.ceil(cells.length / tryCols);
+      const cw = Math.floor((avW - G*(tryCols-1)) / tryCols);
+      const ch = Math.floor((avH - G*(tryRows-1)) / tryRows);
+      const imgSlotH = ch - LH - 4;
+      const imgSlotW = cw - 4;
+      let worstW = Infinity;
+      for (const { all } of cells) {
+        let totalAR = 0;
+        for (const it of all) {
+          const img = imgCache[it.dataUrl];
+          if (img && img.naturalWidth) {
+            totalAR += img.naturalHeight / img.naturalWidth;
+          } else {
+            totalAR += 1.5; // default guess
+          }
+        }
+        if (totalAR <= 0) totalAR = 1.5;
+        const slotH = Math.floor(imgSlotH / all.length);
+        // scale to fit slot
+        const scale = Math.min(imgSlotW / (imgSlotW / totalAR * all.length || 1), slotH / (imgSlotW * totalAR / all.length || 1));
+        const renderedW = Math.min(imgSlotW, slotH / (totalAR / all.length));
+        worstW = Math.min(worstW, renderedW);
+      }
+      return { worstW, cw, ch };
+    }
+
+    // Try cols 3 down to 1, pick best that gives ≥ 180px (at reference 630px width)
+    const MIN_IMG_W = Math.round(170 * S);
+    let cols = cells.length === 1 ? 1 : cells.length <= 2 ? cells.length : cells.length <= 4 ? 2 : 3;
+    for (let tryC = cols; tryC >= 1; tryC--) {
+      const { worstW } = simMinImgW(tryC);
+      if (worstW >= MIN_IMG_W || tryC === 1) { cols = tryC; break; }
+    }
+
     const rows = Math.ceil(cells.length / cols);
-    const cw = Math.floor((W - M*2 - G*(cols-1)) / cols);
-    const ch = Math.floor((H - ct - M - G*(rows-1)) / rows);
+    const cw = Math.floor((avW - G*(cols-1)) / cols);
+    const ch = Math.floor((avH - G*(rows-1)) / rows);
 
     cells.forEach(({ item, all }, idx) => {
       const col = idx % cols, row = Math.floor(idx / cols);
