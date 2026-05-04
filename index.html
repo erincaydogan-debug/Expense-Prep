@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Report Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #f4f4f0; color: #1a1a1a; min-height: 100vh; }
+
+header {
+  background: #1a1a2e; color: #fff; padding: 14px 24px;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 3px solid #4a6cf7;
+}
+header h1 { font-size: 17px; font-weight: 700; }
+header p { font-size: 11px; color: #aaa; margin-top: 1px; }
+
+.layout { display: flex; height: calc(100vh - 55px); overflow: hidden; }
+
+.sidebar {
+  width: 320px; flex-shrink: 0; background: #fff;
+  border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden;
+}
+.sb-block { padding: 14px 16px; border-bottom: 1px solid #eee; }
+.sb-block h3 { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #888; margin-bottom: 10px; }
+
+label { display: block; font-size: 11px; color: #666; margin-bottom: 3px; margin-top: 8px; }
+label:first-child { margin-top: 0; }
+input[type=text], select {
+  width: 100%; padding: 7px 9px; border: 1px solid #ddd; border-radius: 5px;
+  font-size: 12px; background: #fafafa; outline: none; transition: border-color .2s;
+}
+input[type=text]:focus, select:focus { border-color: #4a6cf7; background: #fff; }
+
+.drop-zone {
+  border: 2px dashed #ccc; border-radius: 8px; padding: 18px 12px;
+  text-align: center; cursor: pointer; transition: all .2s;
+  position: relative; background: #fafafa;
+}
+.drop-zone.over { border-color: #4a6cf7; background: #f0f4ff; }
+.drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.drop-zone .ico { font-size: 24px; margin-bottom: 6px; }
+.drop-zone strong { display: block; font-size: 13px; color: #333; margin-bottom: 3px; }
+.drop-zone span { font-size: 11px; color: #888; }
+
+.progress { height: 4px; background: #eee; border-radius: 2px; margin-top: 8px; overflow: hidden; display: none; }
+.progress.show { display: block; }
+.progress-bar { height: 100%; background: #4a6cf7; border-radius: 2px; transition: width .3s; width: 0; }
+
+.item-list { flex: 1; overflow-y: auto; padding: 8px; }
+.item-list::-webkit-scrollbar { width: 4px; }
+.item-list::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+
+.item {
+  background: #fafafa; border: 1px solid #e8e8e8; border-radius: 7px;
+  padding: 7px 8px; margin-bottom: 5px; display: flex; align-items: center;
+  gap: 7px; cursor: grab; transition: all .15s; user-select: none;
+}
+.item:hover { border-color: #4a6cf7; background: #f5f7ff; }
+.item.selected { border-color: #4a6cf7; background: #eef1ff; }
+.item.dragging { opacity: .3; }
+.item.drop-target { border-color: #4a6cf7; border-style: dashed; }
+
+.item-num { font-size: 11px; font-weight: 700; color: #4a6cf7; min-width: 24px; font-family: monospace; }
+.item-thumb { width: 30px; height: 38px; object-fit: cover; border-radius: 3px; background: #eee; flex-shrink: 0; border: 1px solid #ddd; }
+.item-body { flex: 1; min-width: 0; }
+.item-name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #222; }
+.item-badges { display: flex; gap: 3px; margin-top: 3px; flex-wrap: wrap; }
+.badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 600; background: #eee; color: #666; }
+.badge.rot { background: #fff3e0; color: #e65100; }
+.badge.merged { background: #e8f5e9; color: #2e7d32; }
+.badge.full { background: #e3f2fd; color: #1565c0; }
+
+.item-btns { display: flex; gap: 3px; flex-shrink: 0; }
+.ib {
+  width: 22px; height: 22px; border: 1px solid #ddd; border-radius: 4px;
+  background: #fff; color: #666; font-size: 11px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.ib:hover { border-color: #4a6cf7; color: #4a6cf7; }
+.ib.rot-on { border-color: #e65100; color: #e65100; background: #fff3e0; }
+.ib.full-on { border-color: #1565c0; color: #1565c0; background: #e3f2fd; }
+.ib.del:hover { border-color: #c62828; color: #c62828; }
+
+.empty { text-align: center; padding: 32px 16px; color: #aaa; }
+.empty .eico { font-size: 32px; margin-bottom: 8px; }
+.empty p { font-size: 12px; line-height: 1.6; }
+
+.toolbar {
+  background: #fff; border-bottom: 1px solid #eee;
+  padding: 8px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.btn {
+  padding: 6px 12px; border-radius: 5px; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid #ddd; background: #fff; color: #333;
+  display: flex; align-items: center; gap: 5px; transition: all .15s; white-space: nowrap;
+}
+.btn:hover { border-color: #4a6cf7; color: #4a6cf7; background: #f0f4ff; }
+.btn.primary { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+.btn.primary:hover { background: #3558d6; border-color: #3558d6; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn:disabled:hover { border-color: #ddd; color: #333; background: #fff; }
+.sep { width: 1px; height: 20px; background: #eee; }
+.sel-count { font-size: 11px; color: #888; font-family: monospace; margin-left: 4px; }
+
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #f4f4f0; }
+.preview { flex: 1; overflow-y: auto; padding: 20px; }
+.preview::-webkit-scrollbar { width: 6px; }
+.preview::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+.page-wrap { max-width: 460px; margin: 0 auto 24px; }
+.page-label { font-size: 10px; color: #999; font-family: monospace; margin-bottom: 5px; }
+.page-canvas { width: 100%; display: block; border-radius: 3px; box-shadow: 0 2px 12px rgba(0,0,0,.12); background: #fff; }
+
+.preview-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #aaa; text-align: center; gap: 10px; }
+.preview-empty .ico { font-size: 40px; opacity: .5; }
+.preview-empty p { font-size: 13px; }
+
+.merge-info {
+  background: #e8f5e9; border: 1px solid #81c784; border-radius: 5px;
+  padding: 7px 12px; font-size: 11px; color: #2e7d32;
+  margin: 6px 8px 0; display: none; align-items: center; gap: 6px;
+}
+.merge-info.show { display: flex; }
+.merge-info button { margin-left: auto; border: 1px solid #81c784; background: transparent; color: #2e7d32; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 10px; }
+
+.srow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+.srow:not(:last-child) { border-bottom: 1px solid #f0f0f0; }
+.srow-label { font-size: 12px; color: #333; }
+.srow-sub { font-size: 10px; color: #888; }
+
+#toast {
+  position: fixed; bottom: 20px; right: 20px; background: #1a1a2e; color: #fff;
+  border-radius: 8px; padding: 10px 16px; font-size: 13px;
+  transform: translateY(60px); opacity: 0; transition: all .3s; z-index: 9999; pointer-events: none;
+}
+#toast.show { transform: translateY(0); opacity: 1; }
+#toast.ok { background: #2e7d32; }
+#toast.err { background: #c62828; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="width:32px;height:32px;background:#4a6cf7;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;flex-shrink:0;color:#fff">E</div>
+  <div><h1>Expense Report Generator</h1><p>Fiş/fatura PDF raporu oluşturucu</p></div>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+
+    <div class="sb-block">
+      <h3>Rapor Bilgileri</h3>
+      <label>Ad Soyad</label>
+      <input type="text" id="rName" value="Erinc Aydogan">
+      <label>Şirket</label>
+      <input type="text" id="rCompany" value="Dassault Systèmes">
+      <label>Dönem</label>
+      <input type="text" id="rPeriod" placeholder="Örn: April 2026">
+    </div>
+
+    <div class="sb-block">
+      <h3>Fiş / Fatura Ekle</h3>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" multiple>
+        <div class="ico">📎</div>
+        <strong>Dosya Seç veya Sürükle</strong>
+        <span>JPG · PNG · PDF (çok sayfalı desteklenir)</span>
+      </div>
+      <div class="progress" id="progWrap"><div class="progress-bar" id="progBar"></div></div>
+    </div>
+
+    <div class="sb-block">
+      <h3>Ayarlar</h3>
+      <div class="srow">
+        <div><div class="srow-label">Sayfa başına fiş</div><div class="srow-sub">Grid görünümü</div></div>
+        <select id="perPage" style="width:60px">
+          <option value="3">3</option>
+          <option value="6" selected>6</option>
+          <option value="9">9</option>
+        </select>
+      </div>
+      <div class="srow">
+        <div><div class="srow-label">Başlıkta sadece numara</div></div>
+        <input type="checkbox" id="numOnly" checked style="width:16px;height:16px;cursor:pointer">
+      </div>
+    </div>
+
+    <div class="merge-info" id="mergeInfo">
+      ✦ Birleştirme modu — hedef fişe tıkla
+      <button onclick="cancelMerge()">İptal</button>
+    </div>
+
+    <div class="item-list" id="itemList">
+      <div class="empty" id="emptyState">
+        <div class="eico">🧾</div>
+        <p>Henüz fiş yok.<br>Yukarıdan dosya ekle.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="main">
+    <div class="toolbar">
+      <button class="btn primary" id="btnPDF" onclick="generatePDF()" disabled>⬇ PDF Oluştur</button>
+      <div class="sep"></div>
+      <button class="btn" onclick="selectAll()">Tümünü Seç</button>
+      <button class="btn" id="btnRot" onclick="rotateSelected()" disabled>↻ 180° Döndür</button>
+      <button class="btn" id="btnMerge" onclick="startMerge()" disabled>⊕ Birleştir</button>
+      <button class="btn" id="btnFull" onclick="toggleFullSelected()" disabled>⛶ Tam Sayfa</button>
+      <button class="btn" id="btnDel" onclick="deleteSelected()" disabled style="color:#c62828">✕ Sil</button>
+      <span class="sel-count" id="selCount"></span>
+    </div>
+    <div class="preview" id="preview">
+      <div class="preview-empty"><div class="ico">📄</div><p>Fiş eklenince önizleme burada görünür.</p></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let items = [];
+let selected = new Set();
+let mergeMode = false, mergePrimary = null;
+let dragSrc = null, uid = 0;
+const imgCache = {};
+
+// FILE LOADING
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileInput');
+
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); loadFiles([...e.dataTransfer.files]); });
+fi.addEventListener('change', () => { if (fi.files.length) { loadFiles([...fi.files]); fi.value = ''; } });
+
+async function loadFiles(files) {
+  if (!files.length) return;
+  const pw = document.getElementById('progWrap');
+  const pb = document.getElementById('progBar');
+  pw.classList.add('show'); pb.style.width = '5%';
+  toast('Yükleniyor…');
+
+  for (let i = 0; i < files.length; i++) {
+    pb.style.width = Math.round(10 + (i / files.length) * 85) + '%';
+    const f = files[i];
+    try {
+      const urls = await fileToUrls(f);
+      for (const u of urls) {
+        items.push({ id: ++uid, name: cleanName(f.name), dataUrl: u, rotation: 0, fullPage: false, mergeChild: false, mergeParentId: null });
+        loadImg(u);
+      }
+    } catch(e) { console.error('Error loading', f.name, e); }
+  }
+
+  pb.style.width = '100%';
+  setTimeout(() => { pw.classList.remove('show'); pb.style.width = '0'; }, 800);
+  renderList();
+  renderPreview();
+  toast(files.length + ' dosya eklendi', 'ok');
+}
+
+function cleanName(n) { return n.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '); }
+
+async function fileToUrls(file) {
+  if (file.type === 'application/pdf') return pdfToUrls(file);
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res([e.target.result]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function pdfToUrls(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const urls = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const vp = page.getViewport({ scale: 1.8 });
+    const cv = document.createElement('canvas');
+    cv.width = vp.width; cv.height = vp.height;
+    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    urls.push(cv.toDataURL('image/jpeg', 0.88));
+  }
+  return urls;
+}
+
+function loadImg(url) {
+  if (imgCache[url]) return imgCache[url];
+  const img = new Image();
+  img.onload = () => { renderList(); renderPreview(); };
+  img.src = url;
+  imgCache[url] = img;
+  return img;
+}
+
+// RENDER LIST
+function renderList() {
+  const list = document.getElementById('itemList');
+  const visible = items.filter(x => !x.deleted);
+  document.getElementById('emptyState').style.display = visible.length ? 'none' : '';
+  document.getElementById('btnPDF').disabled = !visible.length;
+
+  const nums = {};
+  let n = 1;
+  visible.forEach(it => { if (!it.mergeChild) nums[it.id] = n++; });
+
+  list.querySelectorAll('.item').forEach(el => el.remove());
+
+  visible.forEach(it => {
+    const el = document.createElement('div');
+    el.className = 'item' + (selected.has(it.id) ? ' selected' : '');
+    el.dataset.id = it.id;
+    el.draggable = true;
+
+    const numLabel = it.mergeChild ? '↳' : '#' + nums[it.id];
+    const img = imgCache[it.dataUrl];
+    const thumb = img && img.complete && img.naturalWidth ? it.dataUrl : '';
+
+    el.innerHTML =
+      '<span class="item-num">' + numLabel + '</span>' +
+      '<img class="item-thumb" src="' + thumb + '">' +
+      '<div class="item-body">' +
+        '<div class="item-name">' + esc(it.name) + '</div>' +
+        '<div class="item-badges">' +
+          (it.rotation ? '<span class="badge rot">↻' + it.rotation + '°</span>' : '') +
+          (it.mergeChild ? '<span class="badge merged">birleşik</span>' : '') +
+          (it.fullPage ? '<span class="badge full">tam sayfa</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="item-btns">' +
+        '<button class="ib' + (it.rotation ? ' rot-on' : '') + '" title="180° Döndür" onclick="event.stopPropagation();rotate(' + it.id + ')">↻</button>' +
+        '<button class="ib' + (it.fullPage ? ' full-on' : '') + '" title="Tam Sayfa" onclick="event.stopPropagation();toggleFull(' + it.id + ')">⛶</button>' +
+        '<button class="ib del" title="Sil" onclick="event.stopPropagation();del(' + it.id + ')">✕</button>' +
+      '</div>';
+
+    el.addEventListener('click', e => {
+      if (e.target.closest('.ib')) return;
+      if (mergeMode && it.id !== mergePrimary) { doMerge(it.id); return; }
+      if (e.ctrlKey || e.metaKey) { selected.has(it.id) ? selected.delete(it.id) : selected.add(it.id); }
+      else { selected.clear(); selected.add(it.id); }
+      renderList(); updateToolbar();
+    });
+
+    el.addEventListener('dragstart', () => { dragSrc = it.id; setTimeout(() => el.classList.add('dragging'), 0); });
+    el.addEventListener('dragend', () => { el.classList.remove('dragging'); dragSrc = null; renderList(); renderPreview(); });
+    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop-target'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+    el.addEventListener('drop', e => {
+      e.preventDefault(); el.classList.remove('drop-target');
+      if (dragSrc === null || dragSrc === it.id) return;
+      const from = items.findIndex(x => x.id === dragSrc);
+      const to   = items.findIndex(x => x.id === it.id);
+      if (from < 0 || to < 0) return;
+      const [moved] = items.splice(from, 1);
+      items.splice(to, 0, moved);
+    });
+
+    list.appendChild(el);
+  });
+  updateToolbar();
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ITEM ACTIONS
+function find(id) { return items.find(x => x.id === id); }
+
+function rotate(id) {
+  const it = find(id); if (!it) return;
+  it.rotation = (it.rotation + 180) % 360;
+  renderList(); renderPreview();
+}
+function toggleFull(id) {
+  const it = find(id); if (!it) return;
+  it.fullPage = !it.fullPage;
+  renderList(); renderPreview();
+}
+function del(id) {
+  items = items.filter(x => !(x.mergeChild && x.mergeParentId === id) && x.id !== id);
+  selected.delete(id);
+  renderList(); renderPreview();
+}
+function rotateSelected() { selected.forEach(id => rotate(id)); }
+function deleteSelected() { [...selected].forEach(id => del(id)); selected.clear(); renderList(); renderPreview(); }
+function toggleFullSelected() {
+  const allFull = [...selected].every(id => find(id)?.fullPage);
+  selected.forEach(id => { const it = find(id); if (it) it.fullPage = !allFull; });
+  renderList(); renderPreview();
+}
+function selectAll() { items.filter(x => !x.deleted).forEach(x => selected.add(x.id)); renderList(); updateToolbar(); }
+
+function startMerge() {
+  if (selected.size !== 1) { toast('Önce tek bir fiş seç', 'err'); return; }
+  mergePrimary = [...selected][0];
+  mergeMode = true;
+  document.getElementById('mergeInfo').classList.add('show');
+  toast('Birleştirmek istediğin fişe tıkla');
+}
+function cancelMerge() {
+  mergeMode = false; mergePrimary = null;
+  document.getElementById('mergeInfo').classList.remove('show');
+}
+function doMerge(secId) {
+  const pri = find(mergePrimary), sec = find(secId);
+  if (!pri || !sec) return;
+  sec.mergeChild = true; sec.mergeParentId = mergePrimary;
+  const pi = items.indexOf(pri);
+  items.splice(items.indexOf(sec), 1);
+  items.splice(pi + 1, 0, sec);
+  cancelMerge(); selected.clear();
+  toast('Birleştirildi ✓', 'ok');
+  renderList(); renderPreview();
+}
+
+function updateToolbar() {
+  const n = selected.size;
+  document.getElementById('selCount').textContent = n ? n + ' seçili' : '';
+  document.getElementById('btnRot').disabled = !n;
+  document.getElementById('btnMerge').disabled = n !== 1;
+  document.getElementById('btnFull').disabled = !n;
+  document.getElementById('btnDel').disabled = !n;
+}
+
+// PAGE BUILDER
+function buildPages() {
+  const pp = parseInt(document.getElementById('perPage').value);
+  const roots = items.filter(x => !x.deleted && !x.mergeChild);
+  const pages = [];
+  let buf = [];
+
+  roots.forEach(it => {
+    const children = items.filter(x => !x.deleted && x.mergeChild && x.mergeParentId === it.id);
+    const entry = { item: it, all: [it, ...children] };
+    if (it.fullPage) {
+      if (buf.length) { pages.push({ type: 'grid', cells: buf }); buf = []; }
+      pages.push({ type: 'full', entry });
+    } else {
+      buf.push(entry);
+      if (buf.length === pp) { pages.push({ type: 'grid', cells: buf }); buf = []; }
+    }
+  });
+  if (buf.length) pages.push({ type: 'grid', cells: buf });
+  return pages;
+}
+
+// CANVAS RENDER
+function renderPreview() {
+  const area = document.getElementById('preview');
+  const pages = buildPages();
+  if (!pages.length) {
+    area.innerHTML = '<div class="preview-empty"><div class="ico">📄</div><p>Fiş eklenince önizleme burada görünür.</p></div>';
+    return;
+  }
+  area.innerHTML = '';
+  let gNum = 1;
+  pages.forEach((pg, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'page-wrap';
+    const lbl = document.createElement('div');
+    lbl.className = 'page-label';
+    lbl.textContent = 'Sayfa ' + (i+1) + ' / ' + pages.length;
+    wrap.appendChild(lbl);
+    const cv = document.createElement('canvas');
+    cv.className = 'page-canvas'; cv.width = 630; cv.height = 891;
+    wrap.appendChild(cv); area.appendChild(wrap);
+    drawPage(cv, pg, i+1, pages.length, gNum);
+    gNum += pg.type === 'grid' ? pg.cells.length : 1;
+  });
+}
+
+function drawPage(cv, pg, pNum, pTotal, startNum) {
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const numOnly = document.getElementById('numOnly').checked;
+  const hdr = [
+    document.getElementById('rName').value,
+    document.getElementById('rCompany').value,
+    document.getElementById('rPeriod').value
+  ].filter(Boolean).join('  ·  ');
+
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  // Header
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, W, 36);
+  ctx.fillStyle = '#4a6cf7'; ctx.fillRect(0, 34, W, 2);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 12px system-ui,sans-serif';
+  ctx.textAlign = 'left'; ctx.fillText(hdr || 'Expense Report', 12, 22);
+  ctx.font = '11px system-ui,sans-serif'; ctx.fillStyle = '#aaa';
+  ctx.textAlign = 'right'; ctx.fillText(pNum + ' / ' + pTotal, W - 12, 22);
+  ctx.textAlign = 'left';
+
+  const M = 14, G = 8, LH = 20, ct = 38 + M;
+
+  if (pg.type === 'full') {
+    const { item, all } = pg.entry;
+    drawCellLabel(ctx, M, ct, W - M*2, LH, startNum, numOnly ? null : item.name);
+    drawImgs(ctx, all, M+2, ct+LH+3, W-M*2-4, H-ct-LH-M-5);
+  } else {
+    const cells = pg.cells;
+    const cols = cells.length <= 2 ? cells.length : cells.length <= 4 ? 2 : 3;
+    const rows = Math.ceil(cells.length / cols);
+    const cw = Math.floor((W - M*2 - G*(cols-1)) / cols);
+    const ch = Math.floor((H - ct - M - G*(rows-1)) / rows);
+
+    cells.forEach(({ item, all }, idx) => {
+      const col = idx % cols, row = Math.floor(idx / cols);
+      const x = M + col*(cw+G), y = ct + row*(ch+G);
+      ctx.fillStyle = '#f9f9f9'; ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
+      rrect(ctx, x, y, cw, ch, 4); ctx.fill(); ctx.stroke();
+      drawCellLabel(ctx, x, y, cw, LH, startNum + idx, numOnly ? null : item.name);
+      drawImgs(ctx, all, x+2, y+LH+2, cw-4, ch-LH-4);
+    });
+  }
+}
+
+function drawCellLabel(ctx, x, y, w, h, num, name) {
+  ctx.fillStyle = '#1a1a2e';
+  rrect(ctx, x, y, w, h, [4,4,0,0]); ctx.fill();
+  ctx.fillStyle = '#4a6cf7'; ctx.fillRect(x, y+h-2, w, 2);
+  ctx.fillStyle = '#ffd740'; ctx.font = 'bold 11px system-ui,sans-serif';
+  const label = name ? '#' + num + '  ' + trunc(name, 38) : '#' + num;
+  ctx.fillText(label, x+6, y+h-6);
+}
+
+function drawImgs(ctx, arr, x, y, w, h) {
+  const n = arr.length;
+  const slotH = Math.floor(h / n);
+  arr.forEach((it, i) => {
+    const img = imgCache[it.dataUrl];
+    if (!img || !img.complete || !img.naturalWidth) {
+      ctx.fillStyle = '#eee'; ctx.fillRect(x, y+i*slotH, w, slotH); return;
+    }
+    const rot = it.rotation || 0;
+    const sw = w-4, sh = slotH-4;
+    const cx = x + w/2, cy = y + i*slotH + slotH/2;
+    let iw = img.naturalWidth, ih = img.naturalHeight;
+    if (rot === 90 || rot === 270) { const tmp = iw; iw = ih; ih = tmp; }
+    const scale = Math.min(sw/iw, sh/ih);
+    const dw = iw*scale, dh = ih*scale;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot*Math.PI/180);
+    const rw = (rot===90||rot===270) ? dh : dw;
+    const rh = (rot===90||rot===270) ? dw : dh;
+    ctx.drawImage(img, -rw/2, -rh/2, rw, rh);
+    ctx.restore();
+  });
+}
+
+function rrect(ctx, x, y, w, h, r) {
+  if (typeof r === 'number') r = [r,r,r,r];
+  ctx.beginPath();
+  ctx.moveTo(x+r[0], y);
+  ctx.lineTo(x+w-r[1], y); ctx.arcTo(x+w, y, x+w, y+r[1], r[1]);
+  ctx.lineTo(x+w, y+h-r[2]); ctx.arcTo(x+w, y+h, x+w-r[2], y+h, r[2]);
+  ctx.lineTo(x+r[3], y+h); ctx.arcTo(x, y+h, x, y+h-r[3], r[3]);
+  ctx.lineTo(x, y+r[0]); ctx.arcTo(x, y, x+r[0], y, r[0]);
+  ctx.closePath();
+}
+function trunc(s, max) { return s.length > max ? s.slice(0, max-1) + '…' : s; }
+
+// PDF GENERATION
+async function generatePDF() {
+  const btn = document.getElementById('btnPDF');
+  btn.disabled = true; btn.textContent = '⏳ Oluşturuluyor…';
+  toast('PDF hazırlanıyor…');
+  await new Promise(r => setTimeout(r, 50));
+
+  try {
+    const pages = buildPages();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    let gNum = 1;
+
+    for (let i = 0; i < pages.length; i++) {
+      if (i > 0) doc.addPage();
+      const cv = document.createElement('canvas');
+      cv.width = 1240; cv.height = 1754;
+      const sm = document.createElement('canvas');
+      sm.width = 630; sm.height = 891;
+      drawPage(sm, pages[i], i+1, pages.length, gNum);
+      const bctx = cv.getContext('2d');
+      bctx.imageSmoothingEnabled = true; bctx.imageSmoothingQuality = 'high';
+      bctx.drawImage(sm, 0, 0, 1240, 1754);
+      doc.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      gNum += pages[i].type === 'grid' ? pages[i].cells.length : 1;
+    }
+
+    const period = (document.getElementById('rPeriod').value || 'expenses').replace(/\s+/g,'_');
+    doc.save('expense_report_' + period + '.pdf');
+    toast('PDF indirildi ✓', 'ok');
+  } catch(e) { toast('Hata: ' + e.message, 'err'); console.error(e); }
+
+  btn.disabled = false; btn.textContent = '⬇ PDF Oluştur';
+}
+
+// UTILS
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (type ? ' '+type : '');
+  clearTimeout(t._t); t._t = setTimeout(() => t.className = '', 3000);
+}
+
+// Settings live update
+['perPage','numOnly','rName','rCompany','rPeriod'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderPreview);
+  document.getElementById(id).addEventListener('input', renderPreview);
+});
+</script>
+</body>
+</html>
