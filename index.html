@@ -285,11 +285,14 @@ async function pdfToUrls(file) {
   const urls = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
-    const vp = page.getViewport({ scale: 1.8 });
+    const vp = page.getViewport({ scale: 3.0 });
     const cv = document.createElement('canvas');
     cv.width = vp.width; cv.height = vp.height;
-    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
-    urls.push(cv.toDataURL('image/jpeg', 0.88));
+    const ctx2d = cv.getContext('2d');
+    ctx2d.imageSmoothingEnabled = true;
+    ctx2d.imageSmoothingQuality = 'high';
+    await page.render({ canvasContext: ctx2d, viewport: vp }).promise;
+    urls.push(cv.toDataURL('image/png'));
   }
   return urls;
 }
@@ -471,7 +474,7 @@ function renderPreview() {
     lbl.textContent = 'Sayfa ' + (i+1) + ' / ' + pages.length;
     wrap.appendChild(lbl);
     const cv = document.createElement('canvas');
-    cv.className = 'page-canvas'; cv.width = 630; cv.height = 891;
+    cv.className = 'page-canvas'; cv.width = 2480; cv.height = 3508;
     wrap.appendChild(cv); area.appendChild(wrap);
     drawPage(cv, pg, i+1, pages.length, gNum);
     gNum += pg.type === 'grid' ? pg.cells.length : 1;
@@ -480,7 +483,10 @@ function renderPreview() {
 
 function drawPage(cv, pg, pNum, pTotal, startNum) {
   const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   const W = cv.width, H = cv.height;
+  const S = W / 630;  // scale factor vs reference 630px width
   const numOnly = document.getElementById('numOnly').checked;
   const hdr = [
     document.getElementById('rName').value,
@@ -490,20 +496,20 @@ function drawPage(cv, pg, pNum, pTotal, startNum) {
 
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
 
-  // Header
-  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, W, 36);
-  ctx.fillStyle = '#4a6cf7'; ctx.fillRect(0, 34, W, 2);
-  ctx.fillStyle = '#fff'; ctx.font = 'bold 12px system-ui,sans-serif';
-  ctx.textAlign = 'left'; ctx.fillText(hdr || 'Expense Report', 12, 22);
-  ctx.font = '11px system-ui,sans-serif'; ctx.fillStyle = '#aaa';
-  ctx.textAlign = 'right'; ctx.fillText(pNum + ' / ' + pTotal, W - 12, 22);
+  const HDR = Math.round(36*S);
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, W, HDR);
+  ctx.fillStyle = '#4a6cf7'; ctx.fillRect(0, HDR - Math.round(2*S), W, Math.round(2*S));
+  ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.round(12*S) + 'px system-ui,sans-serif';
+  ctx.textAlign = 'left'; ctx.fillText(hdr || 'Expense Report', Math.round(12*S), Math.round(22*S));
+  ctx.font = Math.round(11*S) + 'px system-ui,sans-serif'; ctx.fillStyle = '#aaa';
+  ctx.textAlign = 'right'; ctx.fillText(pNum + ' / ' + pTotal, W - Math.round(12*S), Math.round(22*S));
   ctx.textAlign = 'left';
 
-  const M = 14, G = 8, LH = 20, ct = 38 + M;
+  const M = Math.round(14*S), G = Math.round(8*S), LH = Math.round(20*S), ct = Math.round(38*S) + M;
 
   if (pg.type === 'full') {
     const { item, all } = pg.entry;
-    drawCellLabel(ctx, M, ct, W - M*2, LH, startNum, numOnly ? null : item.name);
+    drawCellLabel(ctx, M, ct, W - M*2, LH, startNum, numOnly ? null : item.name, S);
     drawImgs(ctx, all, M+2, ct+LH+3, W-M*2-4, H-ct-LH-M-5);
   } else {
     const cells = pg.cells;
@@ -515,21 +521,22 @@ function drawPage(cv, pg, pNum, pTotal, startNum) {
     cells.forEach(({ item, all }, idx) => {
       const col = idx % cols, row = Math.floor(idx / cols);
       const x = M + col*(cw+G), y = ct + row*(ch+G);
-      ctx.fillStyle = '#f9f9f9'; ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
-      rrect(ctx, x, y, cw, ch, 4); ctx.fill(); ctx.stroke();
-      drawCellLabel(ctx, x, y, cw, LH, startNum + idx, numOnly ? null : item.name);
+      ctx.fillStyle = '#f9f9f9'; ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = Math.round(0.5*S);
+      rrect(ctx, x, y, cw, ch, Math.round(4*S)); ctx.fill(); ctx.stroke();
+      drawCellLabel(ctx, x, y, cw, LH, startNum + idx, numOnly ? null : item.name, S);
       drawImgs(ctx, all, x+2, y+LH+2, cw-4, ch-LH-4);
     });
   }
 }
 
-function drawCellLabel(ctx, x, y, w, h, num, name) {
+function drawCellLabel(ctx, x, y, w, h, num, name, S) {
+  S = S || 1;
   ctx.fillStyle = '#1a1a2e';
-  rrect(ctx, x, y, w, h, [4,4,0,0]); ctx.fill();
-  ctx.fillStyle = '#4a6cf7'; ctx.fillRect(x, y+h-2, w, 2);
-  ctx.fillStyle = '#ffd740'; ctx.font = 'bold 11px system-ui,sans-serif';
+  rrect(ctx, x, y, w, h, [Math.round(4*S), Math.round(4*S), 0, 0]); ctx.fill();
+  ctx.fillStyle = '#4a6cf7'; ctx.fillRect(x, y+h-Math.round(2*S), w, Math.round(2*S));
+  ctx.fillStyle = '#ffd740'; ctx.font = 'bold ' + Math.round(11*S) + 'px system-ui,sans-serif';
   const label = name ? '#' + num + '  ' + trunc(name, 38) : '#' + num;
-  ctx.fillText(label, x+6, y+h-6);
+  ctx.fillText(label, x + Math.round(6*S), y+h - Math.round(6*S));
 }
 
 function drawImgs(ctx, arr, x, y, w, h) {
@@ -583,14 +590,9 @@ async function generatePDF() {
     for (let i = 0; i < pages.length; i++) {
       if (i > 0) doc.addPage();
       const cv = document.createElement('canvas');
-      cv.width = 1240; cv.height = 1754;
-      const sm = document.createElement('canvas');
-      sm.width = 630; sm.height = 891;
-      drawPage(sm, pages[i], i+1, pages.length, gNum);
-      const bctx = cv.getContext('2d');
-      bctx.imageSmoothingEnabled = true; bctx.imageSmoothingQuality = 'high';
-      bctx.drawImage(sm, 0, 0, 1240, 1754);
-      doc.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      cv.width = 2480; cv.height = 3508;
+      drawPage(cv, pages[i], i+1, pages.length, gNum);
+      doc.addImage(cv.toDataURL('image/png'), 'PNG', 0, 0, 210, 297);
       gNum += pages[i].type === 'grid' ? pages[i].cells.length : 1;
     }
 
